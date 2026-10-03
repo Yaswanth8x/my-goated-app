@@ -1,0 +1,900 @@
+// ============================================================
+// Prisma Schema — Polymath OS
+// Workspace 1 Part 15 — PostgreSQL Schema (Supabase target)
+// Production: Supabase PostgreSQL + pgvector
+// Local: Can use Supabase local or SQLite (change provider if needed)
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  // For local SQLite quick dev, you can temporarily change to:
+  // provider = "sqlite"
+  // url      = "file:./dev.db"
+  // But for Supabase, keep postgresql
+}
+
+// ============================================================
+// CORE — User & Profile (Workspace 1 Part 18)
+// ============================================================
+
+model Profile {
+  id           String   @id @default(cuid())
+  user_id      String   @unique // Supabase auth.users.id
+  email        String   @unique
+  display_name String?
+  role         UserRole @default(USER)
+  avatar_url   String?
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  // Relations
+  documents         Document[]
+  conversations     Conversation[]
+  messages          Message[]
+  ai_providers      AiProvider[]
+  ai_usage          AiUsage[]
+  projects          Project[]
+  portfolio         PortfolioItem[]
+  skills            UserSkill[]
+  experts           Expert[]
+  goals             Goal[]
+  workspaces        Workspace[]
+  workspace_files   WorkspaceFile[]
+  workspace_notes   WorkspaceNote[]
+  pinned_resources  PinnedResource[]
+
+  @@index([user_id])
+  @@index([email])
+  @@map("profiles")
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+// ============================================================
+// ACADEMIC — Semester, Course, Unit, Topic, CO (Workspace 3)
+// ============================================================
+
+model Semester {
+  id            String   @id @default(cuid())
+  number        Int      @unique // 1-8
+  name          String // "Semester 1", etc.
+  total_credits Int      @default(20)
+  is_current    Boolean  @default(false)
+  regulation    String? // "R2021", etc.
+  created_at    DateTime @default(now())
+
+  courses Course[]
+
+  @@map("semesters")
+}
+
+model Course {
+  id          String   @id @default(cuid())
+  code        String   @unique // e.g., "EC3401", "CS101"
+  name        String // "Programming in C"
+  semester_id String?
+  credits     Int      @default(3)
+  regulation  String? // "R2021"
+  description String?  @db.Text
+  is_elective Boolean  @default(false)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  semester Semester? @relation(fields: [semester_id], references: [id])
+
+  units           Unit[]
+  course_outcomes CourseOutcome[]
+  documents       Document[]
+  pyqs            Pyq[]
+  tests           Test[]
+  prerequisites   CoursePrerequisite[] @relation("CoursePrerequisites")
+  required_for    CoursePrerequisite[] @relation("RequiredFor")
+  workspaces      Workspace[]
+
+  @@index([semester_id])
+  @@index([code])
+  @@map("courses")
+}
+
+model CoursePrerequisite {
+  id              String @id @default(cuid())
+  course_id       String
+  prerequisite_id String
+
+  course       Course @relation("CoursePrerequisites", fields: [course_id], references: [id], onDelete: Cascade)
+  prerequisite Course @relation("RequiredFor", fields: [prerequisite_id], references: [id], onDelete: Cascade)
+
+  @@unique([course_id, prerequisite_id])
+  @@map("course_prerequisites")
+}
+
+model Unit {
+  id          String   @id @default(cuid())
+  course_id   String
+  number      Int // 1-5
+  title       String
+  description String?  @db.Text
+  created_at  DateTime @default(now())
+
+  course    Course     @relation(fields: [course_id], references: [id], onDelete: Cascade)
+  topics    Topic[]
+  documents Document[]
+
+  @@unique([course_id, number])
+  @@index([course_id])
+  @@map("units")
+}
+
+model Topic {
+  id          String   @id @default(cuid())
+  unit_id     String
+  title       String
+  description String?  @db.Text
+  created_at  DateTime @default(now())
+
+  unit      Unit       @relation(fields: [unit_id], references: [id], onDelete: Cascade)
+  documents Document[]
+
+  @@index([unit_id])
+  @@map("topics")
+}
+
+model CourseOutcome {
+  id          String   @id @default(cuid())
+  course_id   String
+  code        String // "CO1", "CO2"
+  description String   @db.Text
+  created_at  DateTime @default(now())
+
+  course Course @relation(fields: [course_id], references: [id], onDelete: Cascade)
+
+  @@unique([course_id, code])
+  @@index([course_id])
+  @@map("course_outcomes")
+}
+
+model UserCoMastery {
+  id         String   @id @default(cuid())
+  user_id    String
+  co_id      String
+  mastery    Float    @default(0) // 0-100
+  last_tested DateTime?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@unique([user_id, co_id])
+  @@index([user_id])
+  @@index([co_id])
+  @@map("user_co_mastery")
+}
+
+// ============================================================
+// DOCUMENTS & RAG (Workspace 2 Part 47-48)
+// ============================================================
+
+model Document {
+  id         String         @id @default(cuid())
+  user_id    String
+  course_id  String?
+  unit_id    String?
+  topic_id   String?
+  title      String
+  type       DocumentType
+  file_path  String // storage path
+  bucket     String         @default("documents")
+  size       Int // bytes
+  status     DocumentStatus @default(UPLOADED)
+  page_count Int?
+  created_at DateTime       @default(now())
+  updated_at DateTime       @updatedAt
+
+  profile Profile @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+  course  Course? @relation(fields: [course_id], references: [id])
+  unit    Unit?   @relation(fields: [unit_id], references: [id])
+  topic   Topic?  @relation(fields: [topic_id], references: [id])
+
+  chunks DocumentChunk[]
+
+  @@index([user_id])
+  @@index([course_id])
+  @@index([unit_id])
+  @@index([created_at])
+  @@map("documents")
+}
+
+enum DocumentType {
+  PDF
+  DOCX
+  PPTX
+  TXT
+  CSV
+  IMAGE
+  OTHER
+}
+
+enum DocumentStatus {
+  UPLOADED
+  PROCESSING
+  READY
+  FAILED
+}
+
+model DocumentChunk {
+  id            String   @id @default(cuid())
+  document_id   String
+  user_id       String
+  course_id     String?
+  unit_id       String?
+  topic_id      String?
+  content       String   @db.Text
+  chunk_index   Int
+  page          Int?
+  section       String?
+  // For pgvector, we store embedding as String (JSON) for now, or use Unsupported("vector")
+  // In production with pgvector extension, you would use: embedding Unsupported("vector(1536)")?
+  embedding     String?  @db.Text // JSON array of floats for mock, or real vector string
+  metadata      Json? // additional metadata
+  created_at    DateTime @default(now())
+
+  document Document @relation(fields: [document_id], references: [id], onDelete: Cascade)
+
+  @@index([document_id])
+  @@index([user_id])
+  @@index([course_id])
+  @@index([unit_id])
+  @@map("document_chunks")
+}
+
+// ============================================================
+// AI — Conversations, Messages, Providers, Usage (Workspace 2)
+// ============================================================
+
+model Conversation {
+  id         String   @id @default(cuid())
+  user_id    String
+  course_id  String?
+  expert_id  String?
+  title      String   @default("New Conversation")
+  model_id   String   @default("mock")
+  provider   String   @default("mock")
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  profile  Profile   @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+  messages Message[]
+  expert   Expert?   @relation(fields: [expert_id], references: [id])
+
+  @@index([user_id])
+  @@index([course_id])
+  @@index([expert_id])
+  @@index([created_at])
+  @@map("conversations")
+}
+
+model Message {
+  id              String      @id @default(cuid())
+  conversation_id String
+  user_id         String
+  role            MessageRole
+  content         String      @db.Text
+  tokens          Int?
+  model           String?
+  citations       Json? // array of citations
+  created_at      DateTime    @default(now())
+
+  conversation Conversation @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
+  profile      Profile      @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+
+  @@index([conversation_id])
+  @@index([user_id])
+  @@index([created_at])
+  @@map("messages")
+}
+
+enum MessageRole {
+  user
+  assistant
+  system
+}
+
+model AiProvider {
+  id                String   @id @default(cuid())
+  user_id           String
+  provider          String // gemini, openai, anthropic, mock, openrouter
+  api_key_encrypted String?  @db.Text // encrypted
+  enabled           Boolean  @default(true)
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  profile Profile @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+
+  @@unique([user_id, provider])
+  @@index([user_id])
+  @@map("ai_providers")
+}
+
+model AiUsage {
+  id            String   @id @default(cuid())
+  user_id       String
+  provider      String
+  model         String
+  tokens_input  Int?
+  tokens_output Int?
+  cost_estimate Float?
+  task          String? // e.g., "chat", "rag", "embedding"
+  created_at    DateTime @default(now())
+
+  profile Profile @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([provider])
+  @@index([created_at])
+  @@map("ai_usage")
+}
+
+model ModelRegistry {
+  id               String   @id @default(cuid())
+  provider         String
+  model_id         String   @unique
+  display_name     String
+  capabilities     Json? // { vision, tools, reasoning, etc. }
+  context_window   Int?
+  supports_vision  Boolean  @default(false)
+  supports_tools   Boolean  @default(false)
+  cost_class       CostClass @default(FREE)
+  enabled          Boolean  @default(true)
+  created_at       DateTime @default(now())
+
+  @@index([provider])
+  @@map("model_registry")
+}
+
+enum CostClass {
+  FREE
+  LOW_COST
+  PREMIUM
+}
+
+// Memory — structured useful info, not full history
+model Memory {
+  id         String     @id @default(cuid())
+  user_id    String
+  course_id  String?
+  expert_id  String?
+  type       MemoryType
+  key        String? // e.g., "struggles_with", "prefers_visual", "completed_unit"
+  content    String     @db.Text
+  created_at DateTime   @default(now())
+  updated_at DateTime   @updatedAt
+
+  @@index([user_id])
+  @@index([course_id])
+  @@index([expert_id])
+  @@index([type])
+  @@map("memories")
+}
+
+enum MemoryType {
+  ACADEMIC
+  PROFESSIONAL
+  GLOBAL
+  EXPERT
+}
+
+// ============================================================
+// PYQ & TESTS (Workspace 3)
+// ============================================================
+
+model Pyq {
+  id           String   @id @default(cuid())
+  user_id      String?
+  course_id    String
+  unit_id      String?
+  year         Int?
+  exam_type    ExamType
+  question_text String   @db.Text
+  marks        Int?
+  source_file  String?
+  created_at   DateTime @default(now())
+
+  course Course @relation(fields: [course_id], references: [id], onDelete: Cascade)
+
+  @@index([course_id])
+  @@index([year])
+  @@map("pyqs")
+}
+
+enum ExamType {
+  CA1
+  CA2
+  ENDSEM
+  ASSIGNMENT
+  OTHER
+}
+
+model Test {
+  id         String   @id @default(cuid())
+  user_id    String?
+  course_id  String
+  type       ExamType
+  title      String
+  total_marks Int     @default(100)
+  duration   Int? // minutes
+  created_at DateTime @default(now())
+
+  course    Course         @relation(fields: [course_id], references: [id], onDelete: Cascade)
+  questions TestQuestion[]
+  attempts  TestAttempt[]
+
+  @@index([course_id])
+  @@map("tests")
+}
+
+model TestQuestion {
+  id          String @id @default(cuid())
+  test_id     String
+  question_text String @db.Text
+  co_id       String?
+  marks       Int    @default(5)
+  order       Int
+
+  test Test @relation(fields: [test_id], references: [id], onDelete: Cascade)
+
+  @@index([test_id])
+  @@map("test_questions")
+}
+
+model TestAttempt {
+  id           String    @id @default(cuid())
+  test_id      String
+  user_id      String
+  score        Float?
+  answers_json Json? // { question_id: answer }
+  started_at   DateTime  @default(now())
+  submitted_at DateTime?
+
+  test Test @relation(fields: [test_id], references: [id], onDelete: Cascade)
+
+  @@index([test_id])
+  @@index([user_id])
+  @@map("test_attempts")
+}
+
+// ============================================================
+// SKILLS & EXPERTS (Workspace 4)
+// ============================================================
+
+model Skill {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  category    String? // Web, AI, Photo, etc.
+  description String?  @db.Text
+  created_at  DateTime @default(now())
+
+  user_skills UserSkill[]
+  projects    Project[]
+
+  @@map("skills")
+}
+
+model UserSkill {
+  id         String    @id @default(cuid())
+  user_id    String
+  skill_id   String
+  level      Int       @default(0) // 0-100
+  status     SkillStatus @default(LATER)
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+
+  profile Profile @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+  skill   Skill   @relation(fields: [skill_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, skill_id])
+  @@index([user_id])
+  @@index([skill_id])
+  @@map("user_skills")
+}
+
+enum SkillStatus {
+  NOW
+  NEXT
+  LATER
+  PARKED
+}
+
+model Expert {
+  id            String   @id @default(cuid())
+  user_id       String? // null for builtin experts
+  name          String
+  persona       String?  @db.Text
+  expertise     String?  @db.Text
+  roadmap       Json? // learning roadmap
+  teaching_style String? @db.Text
+  master_prompt String?  @db.Text // original master prompt
+  is_custom     Boolean  @default(false)
+  is_builtin    Boolean  @default(false)
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  profile       Profile?       @relation(fields: [user_id], references: [user_id])
+  conversations Conversation[]
+  projects      Project[]
+  workspaces    Workspace[]
+
+  @@index([user_id])
+  @@index([name])
+  @@map("experts")
+}
+
+// ============================================================
+// PROJECTS & PORTFOLIO (Workspace 4)
+// ============================================================
+
+model Project {
+  id          String       @id @default(cuid())
+  user_id     String
+  skill_id    String?
+  expert_id   String?
+  title       String
+  description String?      @db.Text
+  level       ProjectLevel @default(BEGINNER)
+  status      ProjectStatus @default(NOT_STARTED)
+  tech_stack  String? // comma separated or JSON
+  github_url  String?
+  demo_url    String?
+  created_at  DateTime     @default(now())
+  updated_at  DateTime     @updatedAt
+
+  profile   Profile         @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+  skill     Skill?          @relation(fields: [skill_id], references: [id])
+  expert    Expert?         @relation(fields: [expert_id], references: [id])
+  portfolio PortfolioItem[]
+
+  @@index([user_id])
+  @@index([skill_id])
+  @@index([expert_id])
+  @@map("projects")
+}
+
+enum ProjectLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+  REAL_WORLD
+  PORTFOLIO
+  CLIENT
+}
+
+enum ProjectStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+  ARCHIVED
+}
+
+model PortfolioItem {
+  id          String   @id @default(cuid())
+  user_id     String
+  project_id  String?
+  title       String
+  problem     String?  @db.Text
+  solution    String?  @db.Text
+  tech        String?
+  skills      String? // JSON array
+  screenshots Json? // array of URLs
+  links       Json? // { github, demo, etc. }
+  docs        String?  @db.Text
+  role        String?
+  date        DateTime?
+  quality     Int? // 1-5
+  review      String?  @db.Text
+  evidence    String?  @db.Text
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  profile Profile  @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+  project Project? @relation(fields: [project_id], references: [id])
+
+  @@index([user_id])
+  @@index([project_id])
+  @@map("portfolio_items")
+}
+
+// ============================================================
+// FREELANCING (Workspace 4)
+// ============================================================
+
+model FreelanceService {
+  id          String   @id @default(cuid())
+  user_id     String
+  title       String
+  description String?  @db.Text
+  pricing     String?
+  created_at  DateTime @default(now())
+
+  @@index([user_id])
+  @@map("freelance_services")
+}
+
+// ============================================================
+// GOALS & POLYMATH (Workspace 5)
+// ============================================================
+
+model Goal {
+  id         String     @id @default(cuid())
+  user_id    String
+  title      String
+  type       GoalType
+  deadline   DateTime?
+  status     GoalStatus @default(NOT_STARTED)
+  created_at DateTime   @default(now())
+  updated_at DateTime   @updatedAt
+
+  profile Profile @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@map("goals")
+}
+
+enum GoalType {
+  ACADEMIC
+  PROFESSIONAL
+  PERSONAL
+}
+
+enum GoalStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+  PARKED
+}
+
+// ============================================================
+// CGPA (Workspace 3)
+// ============================================================
+
+model CgpaRecord {
+  id          String   @id @default(cuid())
+  user_id     String
+  semester_id String?
+  gpa         Float
+  credits     Int
+  courses     Json? // [{ course_id, grade, credits }]
+  created_at  DateTime @default(now())
+
+  @@index([user_id])
+  @@index([semester_id])
+  @@map("cgpa_records")
+}
+
+// ============================================================
+// WORKSPACE STORAGE — AI Professor + Personal Knowledge Workspace
+// Upgrade: Every AI Space has AI Interface + Workspace Vault
+// ============================================================
+
+model Workspace {
+  id            String   @id @default(cuid())
+  user_id       String
+  // AI Space association — either course or expert or custom or global
+  course_id     String?
+  expert_id     String?
+  ai_space_type String?  @default("GLOBAL") // COURSE, EXPERT, CUSTOM, GLOBAL
+  ai_space_id   String?  // course_id or expert_id or custom id for generic
+  name          String   // e.g., "ECE Professor Workspace", "Photography Workspace"
+  description   String?  @db.Text
+  icon          String?  // emoji or icon name
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  profile          Profile?           @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+  course           Course?            @relation(fields: [course_id], references: [id], onDelete: SetNull)
+  expert           Expert?            @relation(fields: [expert_id], references: [id], onDelete: SetNull)
+  blocks           WorkspaceBlock[]
+  folders          WorkspaceFolder[]
+  files            WorkspaceFile[]
+  notes            WorkspaceNote[]
+  data_tables      WorkspaceDataTable[]
+  pinned_resources PinnedResource[]
+
+  @@unique([user_id, course_id])
+  @@unique([user_id, expert_id])
+  @@index([user_id])
+  @@index([course_id])
+  @@index([expert_id])
+  @@index([ai_space_type])
+  @@index([ai_space_id])
+  @@map("workspaces")
+}
+
+model WorkspaceBlock {
+  id           String             @id @default(cuid())
+  workspace_id String
+  block_type   WorkspaceBlockType
+  name         String // "My Documents", "HTML Concepts", etc.
+  description  String?            @db.Text
+  icon         String? // 📄, 🌐, 📑, 🎥, 🎧, 🗃, 📝, 🖼
+  settings     Json? // { primary: bool, order: int, etc. }
+  created_at   DateTime           @default(now())
+  updated_at   DateTime           @updatedAt
+
+  workspace Workspace         @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  folders   WorkspaceFolder[]
+  files     WorkspaceFile[]
+  notes     WorkspaceNote[]
+
+  @@index([workspace_id])
+  @@index([block_type])
+  @@map("workspace_blocks")
+}
+
+enum WorkspaceBlockType {
+  DOCUMENTS
+  HTML
+  PDF
+  VIDEO
+  AUDIO
+  DATA
+  NOTES
+  IMAGES
+  OTHER
+}
+
+model WorkspaceFolder {
+  id               String   @id @default(cuid())
+  workspace_id     String
+  block_id         String?
+  parent_folder_id String? // For nested folders
+  name             String
+  created_at       DateTime @default(now())
+  updated_at       DateTime @updatedAt
+
+  workspace Workspace        @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  block     WorkspaceBlock?  @relation(fields: [block_id], references: [id], onDelete: Cascade)
+  parent    WorkspaceFolder? @relation("FolderHierarchy", fields: [parent_folder_id], references: [id])
+  children  WorkspaceFolder[] @relation("FolderHierarchy")
+  files     WorkspaceFile[]
+  notes     WorkspaceNote[]
+
+  @@index([workspace_id])
+  @@index([block_id])
+  @@index([parent_folder_id])
+  @@map("workspace_folders")
+}
+
+model WorkspaceFile {
+  id                 String   @id @default(cuid())
+  user_id            String
+  workspace_id       String
+  block_id           String?
+  folder_id          String?
+  // AI Space denormalized for quick filtering
+  course_id          String?
+  expert_id          String?
+  filename           String // original filename
+  storage_path       String // e.g., user_id/workspace_id/block_type/filename
+  bucket             String   @default("workspaces") // workspaces bucket private
+  mime_type          String?
+  size_bytes         Int
+  file_type          String? // DOCUMENT, PDF, HTML, VIDEO, AUDIO, IMAGE, DATA, etc.
+  // Metadata
+  description        String?  @db.Text
+  tags               String? // JSON array or comma separated
+  is_favorite        Boolean  @default(false)
+  is_archived        Boolean  @default(false)
+  // AI processing status — Storage independent Optional AI layer
+  storage_status     String   @default("READY") // READY, UPLOADING, FAILED
+  ai_indexing_status String   @default("NOT_REQUESTED") // NOT_REQUESTED, PROCESSING, COMPLETE, FAILED
+  // For versioning future
+  version            Int      @default(1)
+  created_at         DateTime @default(now())
+  updated_at         DateTime @updatedAt
+
+  profile   Profile          @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+  workspace Workspace        @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  block     WorkspaceBlock?  @relation(fields: [block_id], references: [id], onDelete: SetNull)
+  folder    WorkspaceFolder? @relation(fields: [folder_id], references: [id], onDelete: SetNull)
+
+  @@index([user_id])
+  @@index([workspace_id])
+  @@index([block_id])
+  @@index([folder_id])
+  @@index([course_id])
+  @@index([expert_id])
+  @@index([file_type])
+  @@index([created_at])
+  @@map("workspace_files")
+}
+
+model WorkspaceNote {
+  id           String   @id @default(cuid())
+  user_id      String
+  workspace_id String
+  block_id     String?
+  folder_id    String?
+  course_id    String?
+  expert_id    String?
+  title        String
+  content      String   @db.Text // Markdown
+  tags         String? // JSON array
+  is_favorite  Boolean  @default(false)
+  is_archived  Boolean  @default(false)
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  profile   Profile          @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+  workspace Workspace        @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  block     WorkspaceBlock?  @relation(fields: [block_id], references: [id], onDelete: SetNull)
+  folder    WorkspaceFolder? @relation(fields: [folder_id], references: [id], onDelete: SetNull)
+
+  @@index([user_id])
+  @@index([workspace_id])
+  @@index([block_id])
+  @@index([folder_id])
+  @@index([created_at])
+  @@map("workspace_notes")
+}
+
+model WorkspaceDataTable {
+  id                String   @id @default(cuid())
+  user_id           String
+  workspace_id      String
+  name              String // e.g., "Topics", "Assignments", "Revision Tracker"
+  description       String?  @db.Text
+  schema_definition Json? // { columns: [{ name, type, etc. }] }
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  workspace Workspace          @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+  rows      WorkspaceDataRow[]
+
+  @@index([user_id])
+  @@index([workspace_id])
+  @@map("workspace_data_tables")
+}
+
+model WorkspaceDataRow {
+  id         String   @id @default(cuid())
+  table_id   String
+  data       Json // { column_name: value }
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  table WorkspaceDataTable @relation(fields: [table_id], references: [id], onDelete: Cascade)
+
+  @@index([table_id])
+  @@map("workspace_data_rows")
+}
+
+model PinnedResource {
+  id            String   @id @default(cuid())
+  user_id       String
+  workspace_id  String
+  // Can pin file or note or data table or document
+  file_id       String? // WorkspaceFile id
+  note_id       String? // WorkspaceNote id
+  document_id   String? // Existing Document id
+  data_table_id String? // WorkspaceDataTable id
+  // For quick filtering
+  course_id     String?
+  expert_id     String?
+  created_at    DateTime @default(now())
+
+  profile   Profile   @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([workspace_id])
+  @@index([course_id])
+  @@index([expert_id])
+  @@index([file_id])
+  @@index([note_id])
+  @@map("pinned_resources")
+}
