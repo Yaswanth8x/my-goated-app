@@ -99,7 +99,7 @@ ${allMemories.map((m) => `- ${m}`).join("\n")}
 ${request.retrieved_chunks
   .map(
     (chunk, idx) =>
-      `[${idx + 1}] ${chunk.document_title} (page ${chunk.page || "N/A"}, score ${chunk.score.toFixed(2)}):
+      `[${idx + 1}] ${chunk.document_title} (page ${chunk.page || "N/A"}, score ${(chunk.score ?? 0).toFixed(2)}):
 ${chunk.content}
 `
   )
