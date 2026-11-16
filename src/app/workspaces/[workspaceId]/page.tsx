@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { use, useState, useEffect } from "react";
 import Link from "next/link";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -14,7 +14,12 @@ import { generateStoragePath, uploadWorkspaceFile, validateFile } from "@/lib/wo
 import { Workspace, WorkspaceBlock as WorkspaceBlockType, WorkspaceFile, WorkspaceNote } from "@/lib/workspace/types";
 import { ArrowLeft, Search, Plus, Pin, Folder } from "lucide-react";
 
-export default function WorkspaceDetailPage({ params }: { params: { workspaceId: string } }) {
+export default function WorkspaceDetailPage({
+  params,
+}: {
+  params: Promise<{ workspaceId: string }>;
+}) {
+  const { workspaceId } = use(params);
   const { user } = useAuth();
   const userId = user?.id || "mock-user";
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
@@ -28,14 +33,14 @@ export default function WorkspaceDetailPage({ params }: { params: { workspaceId:
   const [pinned, setPinned] = useState<string[]>([]);
 
   useEffect(() => {
-    const ws = getWorkspaceById(params.workspaceId, userId);
+    const ws = getWorkspaceById(workspaceId, userId);
     if (ws) {
       setWorkspace(ws);
       setBlocks(getBlocksForWorkspace(ws.id));
       setFiles(getFilesForWorkspace(ws.id, userId));
       setNotes(getNotesForWorkspace(ws.id, userId));
     }
-  }, [params.workspaceId, userId]);
+  }, [workspaceId, userId]);
 
   const refresh = () => {
     if (!workspace) return;

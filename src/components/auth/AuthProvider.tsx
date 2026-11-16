@@ -24,9 +24,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isSupabaseConfigured, setIsSupabaseConfigured] = useState(false);
 
   useEffect(() => {
-    const supabase = getSupabaseBrowserClient();
-    
-    // Check if Supabase is configured
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     const configured = !!url && !!anonKey && !url.includes("your-project") && !url.includes("placeholder");
@@ -34,10 +31,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     if (!configured) {
       logger.warn("Supabase not configured — auth in mock mode");
-      // Mock user for dev without Supabase
+      try {
+        const stored = localStorage.getItem("polymath_mock_user");
+        if (stored) {
+          setUser(JSON.parse(stored) as User);
+        }
+      } catch {
+        // ignore corrupt mock session
+      }
       setLoading(false);
       return;
     }
+
+    const supabase = getSupabaseBrowserClient();
 
     // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -58,12 +64,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signUp = async (email: string, password: string, displayName?: string) => {
-    const supabase = getSupabaseBrowserClient();
-    
     if (!isSupabaseConfigured) {
       return { error: { message: "Supabase not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env. See SETUP.md" } };
     }
 
+    const supabase = getSupabaseBrowserClient();
     const { error } = await supabase.auth.signUp({
       email,
       password,
@@ -84,24 +89,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signIn = async (email: string, password: string) => {
-    const supabase = getSupabaseBrowserClient();
-
     if (!isSupabaseConfigured) {
       // Mock login for dev
       if (email === "yaswanth@local" && password === "ceg-ece") {
         logger.auth("Mock login successful", { email });
-        // Create mock user
         const mockUser = {
-          id: "mock-user-id",
+          id: "mock-user",
           email: "yaswanth@local",
           user_metadata: { display_name: "Yaswanth (Mock)" },
         } as unknown as User;
         setUser(mockUser);
+        localStorage.setItem("polymath_mock_user", JSON.stringify(mockUser));
         return { error: null };
       }
       return { error: { message: "Supabase not configured. Use yaswanth@local / ceg-ece for mock login, or configure Supabase. See SETUP.md" } };
     }
 
+    const supabase = getSupabaseBrowserClient();
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
@@ -117,12 +121,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
-    const supabase = getSupabaseBrowserClient();
-    
     if (isSupabaseConfigured) {
+      const supabase = getSupabaseBrowserClient();
       await supabase.auth.signOut();
     }
-    
+
+    localStorage.removeItem("polymath_mock_user");
     setUser(null);
     setSession(null);
     logger.auth("User signed out");

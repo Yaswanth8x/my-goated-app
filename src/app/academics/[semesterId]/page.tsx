@@ -4,8 +4,13 @@ import { Button } from "@/components/ui/Button";
 import { getSemester } from "@/lib/academic/curriculum";
 import { ArrowLeft } from "lucide-react";
 
-export default function SemesterPage({ params }: { params: { semesterId: string } }) {
-  const semNumber = parseInt(params.semesterId, 10);
+export default async function SemesterPage({
+  params,
+}: {
+  params: Promise<{ semesterId: string }>;
+}) {
+  const { semesterId } = await params;
+  const semNumber = parseInt(semesterId, 10);
   const semester = getSemester(semNumber);
 
   if (!semester) {

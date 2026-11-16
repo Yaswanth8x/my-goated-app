@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { use, useState, useEffect } from "react";
 import Link from "next/link";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -19,10 +19,15 @@ import { WorkspaceBlock, WorkspaceOverview } from "@/components/workspace/Worksp
 import { generateStoragePath, uploadWorkspaceFile, validateFile } from "@/lib/workspace/storage";
 import { Workspace, WorkspaceBlock as WorkspaceBlockType, WorkspaceFile, WorkspaceNote } from "@/lib/workspace/types";
 
-export default function CoursePage({ params }: { params: { semesterId: string; courseId: string } }) {
-  const course = getCourseByCode(params.courseId);
-  const mastery = getMockMastery(params.courseId);
-  const pyqs = getMockPyqs(params.courseId);
+export default function CoursePage({
+  params,
+}: {
+  params: Promise<{ semesterId: string; courseId: string }>;
+}) {
+  const { semesterId, courseId } = use(params);
+  const course = getCourseByCode(courseId);
+  const mastery = getMockMastery(courseId);
+  const pyqs = getMockPyqs(courseId);
   const families = detectQuestionFamilies(pyqs);
   const frequency = analyzeFrequency(pyqs, families);
   const generatedQuestions = generateQuestionsFromFamilies(families, 3);
@@ -105,11 +110,11 @@ export default function CoursePage({ params }: { params: { semesterId: string; c
   if (!course) {
     return (
       <div className="space-y-4">
-        <p>Course {params.courseId} not found in sample curriculum. Check code or add to curriculum.ts</p>
-        <Link href={`/academics/${params.semesterId}`}>
+        <p>Course {courseId} not found in sample curriculum. Check code or add to curriculum.ts</p>
+        <Link href={`/academics/${semesterId}`}>
           <Button variant="outline">
             <ArrowLeft className="w-4 h-4 mr-2" />
-            Back to Semester {params.semesterId}
+            Back to Semester {semesterId}
           </Button>
         </Link>
       </div>
@@ -120,7 +125,7 @@ export default function CoursePage({ params }: { params: { semesterId: string; c
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center gap-4">
-        <Link href={`/academics/${params.semesterId}`}>
+        <Link href={`/academics/${semesterId}`}>
           <Button variant="ghost" size="icon">
             <ArrowLeft className="w-5 h-5" />
           </Button>
